@@ -213,7 +213,7 @@ async function startGeneration() {
 
   $id('gridSection').style.display = 'block';
 
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 15;
   let doneCount = 0;
   const total = state.slideOrder.length;
   const pending = state.slideOrder.filter(id => state.slides[id]?.status !== 'done');
