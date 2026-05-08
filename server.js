@@ -42,21 +42,33 @@ Analyse the user's message and decide what they need. Respond with ONLY valid JS
   "type": "plan",
   "plan": {
     "title": "Presentation Title",
-    "theme": "Describe the visual theme in detail (colors, style, mood)",
+    "theme": "Describe the visual theme in detail (colors, style, mood, era, inspiration)",
     "colorScheme": "primary: #hex, secondary: #hex, accent: #hex, bg: #hex, text: #hex",
+    "designSystem": {
+      "moodBoard": "3–5 adjectives capturing the visual personality (e.g. bold, futuristic, minimal, warm, editorial)",
+      "typography": "Font stack and size scale: display ~64px ultra-bold, heading ~40px semibold, subheading ~28px medium, body ~20px regular, caption ~13px. Describe character (geometric sans, humanist, slab-serif, etc.)",
+      "spacing": "Slide padding and internal rhythm (e.g. 72px slide padding, 40px section gap, 16px item gap, 8px tight gap)",
+      "animationStyle": "CSS animation style to use consistently: e.g. 'subtle fade-up 0.4s ease, staggered children 0.1s delay each'",
+      "visualMotifs": "Recurring decorative elements across all slides: e.g. 'thin horizontal rule accents, circular blobs, diagonal slashes, corner notches, dot-grid patterns'",
+      "componentPatterns": "How bullets, callouts, data blocks, tags, and quotes are styled (e.g. 'bullets use left accent bar, callouts use glass morphism card, quotes use large italic with decorative quotemark')",
+      "layoutPrinciples": "Core layout rules to maintain consistency (e.g. 'content always left-aligned, hero text left 1/3, visuals right 2/3, never center-align body text')"
+    },
     "slides": [
       {
         "id": 1,
         "title": "Slide Title",
         "type": "title|intro|content|section|comparison|data|timeline|quote|closing",
-        "description": "Detailed description of slide content and layout",
-        "keyPoints": ["bullet point 1", "bullet point 2", "bullet point 3"],
-        "notes": "Design and visual notes for this specific slide"
+        "description": "What this slide covers — the topic and key idea in 1–2 sentences",
+        "layout": "Spatial layout descriptor: e.g. 'full-bleed hero with centered text overlay', 'two-column: text left, visual right', 'three-card horizontal grid', 'timeline vertical flow', 'quote centered with decorative background'",
+        "contentStrategy": "Why this slide exists and what the audience should feel or understand after seeing it",
+        "keyPoints": ["Concrete bullet 1", "Concrete bullet 2", "Concrete bullet 3"],
+        "visualElements": "Specific visual instructions: icon style, shape composition, gradient direction, data viz type, accent colors, SVG art hints",
+        "notes": "Any extra design or content nuance for this slide"
       }
     ]
   }
 }
-Create 8–15 slides. Be specific, creative, and vary the slide types.
+Create 8–15 slides. Be specific and creative. Vary types and layouts. The designSystem must be internally consistent and all slides must feel like one cohesive deck.
 
 2. For ALL other messages — greetings, questions, unclear requests, small talk, capability questions, requests for clarification — respond conversationally:
 {
@@ -154,7 +166,7 @@ Create 8–15 slides. Be specific, creative, and vary the slide types.`,
 
 // ─── Generate a single slide (streaming) ─────────────────────────────────────
 app.post('/api/generate-slide', async (req, res) => {
-  const { slide, theme, colorScheme, model, apiKey, presentationTitle } = req.body;
+  const { slide, theme, colorScheme, designSystem, model, apiKey, presentationTitle } = req.body;
   if (!apiKey) return res.status(400).json({ error: 'API key required' });
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -164,6 +176,8 @@ app.post('/api/generate-slide', async (req, res) => {
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
+  const ds = designSystem || {};
+
   try {
     const response = await callOpenRouter(
       apiKey,
@@ -171,32 +185,47 @@ app.post('/api/generate-slide', async (req, res) => {
       [
         {
           role: 'system',
-          content: `You are an expert HTML/CSS slide designer crafting stunning, professional presentations.
+          content: `You are an expert HTML/CSS slide designer crafting a single slide for a cohesive professional presentation.
 
 STRICT REQUIREMENTS:
 - Return ONLY a complete valid HTML document (<!DOCTYPE html> … </html>)
 - Slide dimensions: exactly 1280px × 720px (16:9). Set width/height on body/html.
 - Use ONLY inline styles or <style> tags. Zero external CSS files or fonts (no Google Fonts).
 - Zero external image URLs. Use CSS gradients, shapes, clip-path, SVG inline, and CSS art.
+- Text must be legible. Use good contrast. No tiny fonts.
+- CSS animations are encouraged but must not rely on external JS.
+- Do NOT include any JavaScript that fetches external resources.
+- Make it visually stunning. Be bold and creative.
+
+GLOBAL DESIGN SYSTEM — apply these consistently across this slide:
 - Theme: ${theme}
 - Color scheme: ${colorScheme}
-- Presentation: "${presentationTitle}"
-- Text must be legible. Use good contrast. No tiny fonts.
-- CSS animations and transitions are encouraged but must not rely on external JS.
-- Do NOT include any JavaScript that fetches external resources.
-- Make it visually stunning. Go beyond plain white/black — be bold and creative.`,
+- Mood: ${ds.moodBoard || 'professional, modern'}
+- Typography: ${ds.typography || 'clean sans-serif, display large, body regular'}
+- Spacing: ${ds.spacing || '72px slide padding, 40px section gap, 16px item gap'}
+- Animations: ${ds.animationStyle || 'subtle fade-in'}
+- Visual motifs: ${ds.visualMotifs || 'geometric accents'}
+- Component patterns: ${ds.componentPatterns || 'standard card style'}
+- Layout principles: ${ds.layoutPrinciples || 'content left-aligned'}
+- Presentation: "${presentationTitle}"`,
         },
         {
           role: 'user',
-          content: `Create slide ${slide.id} for the presentation "${presentationTitle}":
+          content: `Create slide ${slide.id} of ${slide.totalSlides || '?'} for "${presentationTitle}":
 
 Title: "${slide.title}"
 Type: ${slide.type}
+Layout: ${slide.layout || 'Follow design system'}
 Content: ${slide.description}
-Key points: ${(slide.keyPoints || []).join(' | ')}
-Design notes: ${slide.notes || 'Follow the theme'}
+Content strategy (why this slide matters): ${slide.contentStrategy || slide.description}
+Key points:
+${(slide.keyPoints || []).map(p => `  • ${p}`).join('\n')}
+Visual elements: ${slide.visualElements || slide.notes || 'Follow design system'}
+Extra notes: ${slide.notes || '—'}
 
-Return ONLY the complete HTML document. Make it visually stunning.`,
+IMPORTANT: This is slide ${slide.id} in the deck. The visual style must match the global design system exactly — same color palette, same typography scale, same motifs, same component patterns.
+
+Return ONLY the complete HTML document.`,
         },
       ],
       true

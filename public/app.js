@@ -150,14 +150,43 @@ function applyPlan(plan) {
   $id('presentationTitle').textContent = plan.title;
   $id('slideCount').textContent = `${plan.slides.length} slides`;
 
-  // Render todo list
+  // Render design system card
+  const ds = plan.designSystem || {};
+  const dsCard = $id('designSystemCard');
+  if (dsCard) {
+    dsCard.innerHTML = `
+      <div class="ds-card">
+        <div class="ds-card-header">
+          <span class="ds-label">🎨 Global Design System</span>
+          <span class="ds-mood">${escHtml(ds.moodBoard || plan.theme || '')}</span>
+        </div>
+        <div class="ds-grid">
+          ${ds.typography ? `<div class="ds-row"><span class="ds-key">Typography</span><span class="ds-val">${escHtml(ds.typography)}</span></div>` : ''}
+          ${ds.spacing ? `<div class="ds-row"><span class="ds-key">Spacing</span><span class="ds-val">${escHtml(ds.spacing)}</span></div>` : ''}
+          ${ds.animationStyle ? `<div class="ds-row"><span class="ds-key">Animation</span><span class="ds-val">${escHtml(ds.animationStyle)}</span></div>` : ''}
+          ${ds.visualMotifs ? `<div class="ds-row"><span class="ds-key">Visual Motifs</span><span class="ds-val">${escHtml(ds.visualMotifs)}</span></div>` : ''}
+          ${ds.componentPatterns ? `<div class="ds-row"><span class="ds-key">Components</span><span class="ds-val">${escHtml(ds.componentPatterns)}</span></div>` : ''}
+          ${ds.layoutPrinciples ? `<div class="ds-row"><span class="ds-key">Layout Rules</span><span class="ds-val">${escHtml(ds.layoutPrinciples)}</span></div>` : ''}
+          <div class="ds-row"><span class="ds-key">Color Scheme</span><span class="ds-val">${escHtml(plan.colorScheme || '')}</span></div>
+        </div>
+      </div>`;
+  }
+
+  // Render todo list with rich detail
   const list = $id('slideList');
   list.innerHTML = plan.slides.map(s => `
     <div class="slide-todo-item" id="todo-${s.id}" data-status="pending" data-id="${s.id}">
       <div class="todo-num">${s.id}</div>
       <div class="todo-body">
-        <div class="todo-title">${escHtml(s.title)}</div>
-        <div class="todo-desc">${escHtml(s.description)}</div>
+        <div class="todo-header-row">
+          <div class="todo-title">${escHtml(s.title)}</div>
+          <span class="todo-type-badge">${escHtml(s.type || '')}</span>
+        </div>
+        ${s.contentStrategy ? `<div class="todo-strategy">${escHtml(s.contentStrategy)}</div>` : ''}
+        ${s.layout ? `<div class="todo-layout"><span class="todo-layout-icon">⊞</span>${escHtml(s.layout)}</div>` : ''}
+        ${s.description ? `<div class="todo-desc">${escHtml(s.description)}</div>` : ''}
+        ${s.keyPoints?.length ? `<ul class="todo-keypoints">${s.keyPoints.map(p => `<li>${escHtml(p)}</li>`).join('')}</ul>` : ''}
+        ${s.visualElements ? `<div class="todo-visuals"><span class="todo-visuals-icon">✦</span>${escHtml(s.visualElements)}</div>` : ''}
         <div class="progress-text" id="prog-${s.id}" style="display:none"></div>
       </div>
       <span class="todo-badge badge-pending" id="badge-${s.id}">Pending</span>
@@ -184,13 +213,19 @@ async function startGeneration() {
 
   $id('gridSection').style.display = 'block';
 
+  const BATCH_SIZE = 5;
   let doneCount = 0;
   const total = state.slideOrder.length;
+  const pending = state.slideOrder.filter(id => state.slides[id]?.status !== 'done');
 
-  for (const slideId of state.slideOrder) {
-    const slide = state.slides[slideId];
-    if (slide.status === 'done') { doneCount++; continue; }
-    await streamGenerateSlide(slide, ++doneCount, total);
+  const onSlideDone = () => {
+    doneCount++;
+    $id('gridProgress').textContent = `${doneCount}/${total} done`;
+  };
+
+  for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+    const batch = pending.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(id => streamGenerateSlide(state.slides[id], onSlideDone)));
   }
 
   state.generating = false;
@@ -203,18 +238,21 @@ async function startGeneration() {
   );
 }
 
-async function streamGenerateSlide(slide, doneCount, total) {
+async function streamGenerateSlide(slide, onDone) {
   setTodoStatus(slide.id, 'generating');
   ensureThumbPlaceholder(slide);
+
+  const totalSlides = state.slideOrder.length;
 
   try {
     const res = await fetch('/api/generate-slide', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        slide,
+        slide: { ...slide, totalSlides },
         theme: state.plan.theme,
         colorScheme: state.plan.colorScheme,
+        designSystem: state.plan.designSystem || null,
         model: state.model,
         apiKey: state.apiKey,
         presentationTitle: state.plan.title,
@@ -249,7 +287,7 @@ async function streamGenerateSlide(slide, doneCount, total) {
             state.slides[slide.id].status = 'done';
             setTodoStatus(slide.id, 'done');
             updateThumb(slide.id, evt.html);
-            $id('gridProgress').textContent = `${doneCount}/${total} done`;
+            onDone();
             const prog = $id(`prog-${slide.id}`);
             if (prog) prog.style.display = 'none';
           } else if (evt.type === 'error') {
