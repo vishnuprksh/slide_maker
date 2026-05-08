@@ -68,7 +68,7 @@ Analyse the user's message and decide what they need. Respond with ONLY valid JS
     ]
   }
 }
-Create 8–15 slides. Be specific and creative. Vary types and layouts. The designSystem must be internally consistent and all slides must feel like one cohesive deck.
+Create 3–6 slides. Be specific and creative. Vary types and layouts. The designSystem must be internally consistent and all slides must feel like one cohesive deck.
 
 2. For ALL other messages — greetings, questions, unclear requests, small talk, capability questions, requests for clarification — respond conversationally:
 {
@@ -139,7 +139,7 @@ Return ONLY this JSON structure (no markdown, no extra text):
   ]
 }
 
-Create 8–15 slides. Be specific, creative, and vary the slide types.`,
+Create 3–6 slides. Be specific, creative, and vary the slide types.`,
       },
       { role: 'user', content: message },
     ]);
@@ -166,7 +166,7 @@ Create 8–15 slides. Be specific, creative, and vary the slide types.`,
 
 // ─── Generate a single slide (streaming) ─────────────────────────────────────
 app.post('/api/generate-slide', async (req, res) => {
-  const { slide, theme, colorScheme, designSystem, model, apiKey, presentationTitle } = req.body;
+  const { slide, theme, colorScheme, designSystem, model, apiKey, presentationTitle, extraInstructions } = req.body;
   if (!apiKey) return res.status(400).json({ error: 'API key required' });
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -185,19 +185,39 @@ app.post('/api/generate-slide', async (req, res) => {
       [
         {
           role: 'system',
-          content: `You are an expert HTML/CSS slide designer crafting a single slide for a cohesive professional presentation.
+          content: `You are an elite HTML/CSS slide designer crafting a single slide for a cohesive, world-class professional presentation.
 
 STRICT REQUIREMENTS:
 - Return ONLY a complete valid HTML document (<!DOCTYPE html> … </html>)
-- Slide dimensions: exactly 1280px × 720px (16:9). Set width/height on body/html.
-- Use ONLY inline styles or <style> tags. Zero external CSS files or fonts (no Google Fonts).
-- Zero external image URLs. Use CSS gradients, shapes, clip-path, SVG inline, and CSS art.
-- Text must be legible. Use good contrast. No tiny fonts.
-- CSS animations are encouraged but must not rely on external JS.
+- Slide dimensions: EXACTLY 1280px × 720px (16:9). Set width:1280px; height:720px; overflow:hidden on html AND body AND every root wrapper.
+- You MAY import Google Fonts via @import in a <style> tag. Use premium fonts: 'Plus Jakarta Sans', 'DM Sans', 'Space Grotesk', 'Outfit', 'Syne', 'Bricolage Grotesque', 'Raleway'. Pick fonts that match the mood.
+- Zero external image URLs. Use CSS gradients, shapes, clip-path, SVG inline, and CSS art for all visuals.
+- CSS animations are encouraged (keyframes only, no external JS).
 - Do NOT include any JavaScript that fetches external resources.
-- Make it visually stunning. Be bold and creative.
 
-GLOBAL DESIGN SYSTEM — apply these consistently across this slide:
+OVERFLOW PREVENTION (CRITICAL — NEVER VIOLATE):
+- html, body, and ALL wrapper/container divs MUST have: overflow:hidden; max-width:1280px; max-height:720px;
+- Every text element must have: overflow:hidden; — use font-size, line-height, and padding that GUARANTEE text fits inside its container.
+- NEVER place any element at position:absolute with left/top/right/bottom values that push it outside the 1280×720 boundary.
+- NEVER use font sizes that cause text to wrap outside its container. Prefer smaller font than overflow.
+- NEVER use percentage-based widths/heights unless the parent is explicitly 1280×720. Use px instead.
+- Think carefully: mentally verify that EVERY element fits within 1280×720 before writing the code.
+
+THEME ENFORCEMENT (CRITICAL — NEVER VIOLATE):
+- The slide's background MUST use exactly the bg color from the color scheme below. NEVER use white (#fff/#ffffff) in a dark theme or black in a light theme unless that IS the specified bg color.
+- Every color used must come from or harmonize with the provided color scheme.
+- Enforce the same font family, font weights, spacing rhythm, and visual motifs as the global design system.
+- This slide must look unmistakably like part of the same deck as all other slides.
+
+DESIGN EXCELLENCE:
+- Be bold, creative, and visually stunning — think award-winning deck design.
+- Use striking gradients, layered geometric shapes, elegant typography hierarchy, subtle shadows, and purposeful whitespace.
+- Typography scale: display 64–80px weight 800–900, heading 36–48px weight 700, subheading 22–30px weight 500–600, body 17–21px weight 400, caption 13–15px weight 400.
+- Minimum font size: 13px. Never go smaller.
+- Use letter-spacing:-0.02em to -0.04em on large display text for a premium editorial feel.
+- Subtle CSS animations (fade-up, scale-in) add polish but must not overflow the slide boundary.
+
+GLOBAL DESIGN SYSTEM — apply ALL of these consistently:
 - Theme: ${theme}
 - Color scheme: ${colorScheme}
 - Mood: ${ds.moodBoard || 'professional, modern'}
@@ -223,7 +243,12 @@ ${(slide.keyPoints || []).map(p => `  • ${p}`).join('\n')}
 Visual elements: ${slide.visualElements || slide.notes || 'Follow design system'}
 Extra notes: ${slide.notes || '—'}
 
-IMPORTANT: This is slide ${slide.id} in the deck. The visual style must match the global design system exactly — same color palette, same typography scale, same motifs, same component patterns.
+REMINDERS:
+- Slide ${slide.id} of ${slide.totalSlides || '?'} — must match the global design system exactly.
+- Background MUST be: the bg color from the color scheme (${colorScheme}). NEVER use white/black unless that IS the bg color.
+- ALL content must fit inside 1280×720 with overflow:hidden everywhere. No exceptions.
+- Use the imported Google Font specified in the design system typography.
+${extraInstructions ? `\nFIX REQUIRED FROM PREVIOUS ATTEMPT:\n${extraInstructions}` : ''}
 
 Return ONLY the complete HTML document.`,
         },
@@ -337,6 +362,55 @@ app.post('/api/edit-slide', async (req, res) => {
   }
 
   res.end();
+});
+
+// ─── Review a generated slide via vision ─────────────────────────────────────
+app.post('/api/review-slide', async (req, res) => {
+  const { imageBase64, theme, colorScheme, slideTitle, model, apiKey } = req.body;
+  if (!apiKey) return res.json({ pass: true });
+
+  try {
+    const response = await callOpenRouter(apiKey, model, [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `You are a strict presentation slide quality reviewer. Analyze this slide screenshot.
+
+Theme: ${theme}
+Color scheme: ${colorScheme}
+Slide: "${slideTitle}"
+
+Check ONLY for these critical failure conditions:
+1. OVERFLOW — Any text, element, or content is cut off at the slide edges or extends beyond the visible area.
+2. THEME MISMATCH — The slide background is completely wrong (e.g., plain white in a dark-themed deck, or black in a light deck). Minor color variation is OK; a fully incorrect background is NOT.
+3. BROKEN LAYOUT — Elements are stacked in an unreadable way, text overlaps other text, or the slide looks visually broken.
+
+If NONE of these critical failures are present, the slide PASSES even if it could be improved.
+
+Respond with ONLY valid JSON, no markdown fences:
+{"pass": true_or_false, "issues": "concise description of critical failures found, or empty string if passed"}`,
+          },
+          {
+            type: 'image_url',
+            image_url: { url: `data:image/jpeg;base64,${imageBase64}`, detail: 'low' },
+          },
+        ],
+      },
+    ], false);
+
+    if (!response.ok) return res.json({ pass: true });
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = content.match(/\{[\s\S]*?\}/);
+    if (!jsonMatch) return res.json({ pass: true });
+
+    res.json(JSON.parse(jsonMatch[0]));
+  } catch {
+    res.json({ pass: true }); // graceful skip on any error
+  }
 });
 
 // ─── Slide CRUD ───────────────────────────────────────────────────────────────

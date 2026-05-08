@@ -207,6 +207,10 @@ async function startGeneration() {
   if (!state.plan || state.generating) return;
 
   state.generating = true;
+
+  // Clear old slide files before generating fresh ones
+  await fetch('/api/slides', { method: 'DELETE' }).catch(() => {});
+
   const genBtn = $id('generateBtn');
   genBtn.disabled = true;
   genBtn.innerHTML = '<span class="btn-icon">⏳</span> Generating…';
@@ -239,9 +243,31 @@ async function startGeneration() {
 }
 
 async function streamGenerateSlide(slide, onDone) {
-  setTodoStatus(slide.id, 'generating');
-  ensureThumbPlaceholder(slide);
+  const MAX_ATTEMPTS = 3;
+  let extraInstructions = '';
 
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    setTodoStatus(slide.id, 'generating');
+    ensureThumbPlaceholder(slide);
+
+    const ok = await attemptGenerateSlide(slide, extraInstructions);
+    if (!ok) break; // network/server error — give up
+
+    // Review after each attempt (skip review on final attempt to avoid infinite loop)
+    if (attempt < MAX_ATTEMPTS) {
+      setTodoStatus(slide.id, 'reviewing');
+      const review = await reviewSlide(slide);
+      if (review.pass) break; // passed — done
+      extraInstructions = review.issues;
+      setTodoStatus(slide.id, 'retrying');
+    }
+  }
+
+  setTodoStatus(slide.id, state.slides[slide.id]?.status === 'error' ? 'error' : 'done');
+  onDone();
+}
+
+async function attemptGenerateSlide(slide, extraInstructions) {
   const totalSlides = state.slideOrder.length;
 
   try {
@@ -256,6 +282,7 @@ async function streamGenerateSlide(slide, onDone) {
         model: state.model,
         apiKey: state.apiKey,
         presentationTitle: state.plan.title,
+        extraInstructions: extraInstructions || '',
       }),
     });
 
@@ -285,21 +312,48 @@ async function streamGenerateSlide(slide, onDone) {
           } else if (evt.type === 'done') {
             state.slides[slide.id].html = evt.html;
             state.slides[slide.id].status = 'done';
-            setTodoStatus(slide.id, 'done');
             updateThumb(slide.id, evt.html);
-            onDone();
             const prog = $id(`prog-${slide.id}`);
             if (prog) prog.style.display = 'none';
           } else if (evt.type === 'error') {
             state.slides[slide.id].status = 'error';
-            setTodoStatus(slide.id, 'error');
           }
         } catch {}
       }
     }
   } catch (err) {
     state.slides[slide.id].status = 'error';
-    setTodoStatus(slide.id, 'error');
+    return false;
+  }
+  return state.slides[slide.id]?.status !== 'error';
+}
+
+// ── Review a generated slide via vision ───────────────────────────────────
+async function reviewSlide(slide) {
+  try {
+    const prog = $id(`prog-${slide.id}`);
+    if (prog) { prog.style.display = 'block'; prog.textContent = '🔍 Reviewing…'; }
+
+    const imgData = await captureSlide(slide.html);
+    const base64 = imgData.split(',')[1];
+
+    const res = await fetch('/api/review-slide', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase64: base64,
+        theme: state.plan.theme,
+        colorScheme: state.plan.colorScheme,
+        slideTitle: slide.title,
+        model: state.model,
+        apiKey: state.apiKey,
+      }),
+    });
+
+    if (prog) prog.style.display = 'none';
+    return await res.json();
+  } catch {
+    return { pass: true }; // skip review on any error
   }
 }
 
@@ -313,6 +367,8 @@ function setTodoStatus(id, status) {
   const map = {
     pending:    ['badge-pending',    'Pending'],
     generating: ['badge-generating', 'Generating…'],
+    reviewing:  ['badge-reviewing',  '🔍 Reviewing…'],
+    retrying:   ['badge-generating', '↺ Retrying…'],
     done:       ['badge-done',       '✓ Done'],
     error:      ['badge-error',      '✕ Error'],
   };
@@ -560,13 +616,13 @@ async function captureSlide(html) {
       try {
         const canvas = await html2canvas(iframe.contentDocument.documentElement, {
           width: 1280, height: 720,
-          scale: 1,
+          scale: 2,
           useCORS: true, allowTaint: true,
           windowWidth: 1280, windowHeight: 720,
           logging: false,
         });
         cleanup();
-        resolve(canvas.toDataURL('image/jpeg', 0.92));
+        resolve(canvas.toDataURL('image/png'));
       } catch (e) {
         cleanup();
         reject(e);
