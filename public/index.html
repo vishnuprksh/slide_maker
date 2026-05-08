@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SlideMaker AI</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ═══ SIDEBAR ═══════════════════════════════════════════════════════════ -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">✦</span>
+          <span class="logo-text">SlideMaker <em>AI</em></span>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div class="settings-panel">
+        <div class="form-group">
+          <label for="apiKey">OpenRouter API Key</label>
+          <div class="input-wrap">
+            <input type="password" id="apiKey" placeholder="sk-or-v1-..." autocomplete="off" spellcheck="false" />
+            <button class="toggle-key" onclick="toggleApiKeyVisibility()" title="Toggle visibility">👁</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="modelSelect">Model</label>
+          <select id="modelSelect">
+            <option value="openai/gpt-oss-120b:free">GPT OSS 120B — OpenAI</option>
+            <option value="tencent/hy3-preview:free">Hunyuan 3 Preview — Tencent</option>
+            <option value="poolside/laguna-m.1:free">Laguna M.1 — Poolside</option>
+            <option value="z-ai/glm-4.5-air:free">GLM-4.5 Air — Z-AI</option>
+            <option value="minimax/minimax-m2.5:free">MiniMax M2.5</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Chat messages -->
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-message assistant">
+          <div class="avatar">✦</div>
+          <div class="bubble">
+            <p>Hi! I'm your AI presentation assistant.</p>
+            <p>Tell me what kind of presentation you need — topic, audience, style, length. I'll plan it out slide by slide, then generate each one.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div class="chat-input-area">
+        <textarea
+          id="chatInput"
+          placeholder="Describe your presentation…"
+          rows="3"
+          onkeydown="handleInputKey(event)"
+        ></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ═══ CANVAS ════════════════════════════════════════════════════════════ -->
+    <main class="canvas">
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="toolbar-title" id="presentationTitle">No presentation yet</div>
+        <div class="toolbar-actions">
+          <button class="btn-gen" id="generateBtn" onclick="startGeneration()" style="display:none">
+            <span class="btn-icon">▶</span> Generate Slides
+          </button>
+          <button class="btn-export" id="exportBtn" onclick="exportToPPT()" style="display:none">
+            <span class="btn-icon">↓</span> Export PPTX
+          </button>
+          <button class="btn-clear" id="clearBtn" onclick="clearPresentation()" style="display:none">
+            <span class="btn-icon">✕</span> New
+          </button>
+        </div>
+      </div>
+
+      <!-- Scrollable content -->
+      <div class="canvas-body" id="canvasBody">
+
+        <!-- Empty state -->
+        <div class="empty-state" id="emptyState">
+          <div class="empty-graphic">
+            <div class="empty-slide s1"></div>
+            <div class="empty-slide s2"></div>
+            <div class="empty-slide s3"></div>
+          </div>
+          <h2>Your presentation will appear here</h2>
+          <p>Start by describing your presentation in the chat →</p>
+        </div>
+
+        <!-- Plan section (todo list) -->
+        <section class="plan-section" id="planSection" style="display:none">
+          <div class="section-header">
+            <h3>📋 Slide Plan</h3>
+            <span class="slide-count" id="slideCount"></span>
+          </div>
+          <div class="slide-todo-list" id="slideList"></div>
+        </section>
+
+        <!-- Slide grid -->
+        <section class="grid-section" id="gridSection" style="display:none">
+          <div class="section-header">
+            <h3>🖼 Slides</h3>
+            <span id="gridProgress"></span>
+          </div>
+          <div class="slide-grid" id="slideGrid"></div>
+        </section>
+
+        <!-- Preview section -->
+        <section class="preview-section" id="previewSection" style="display:none">
+          <div class="preview-header">
+            <div class="preview-nav">
+              <button class="btn-icon-only" onclick="navigateSlide(-1)" title="Previous slide">‹</button>
+              <span class="preview-label" id="previewLabel">Slide 1</span>
+              <button class="btn-icon-only" onclick="navigateSlide(1)" title="Next slide">›</button>
+            </div>
+            <button class="btn-edit-slide" id="editToggleBtn" onclick="toggleEditPanel()">✏️ Edit with AI</button>
+          </div>
+
+          <div class="preview-frame-wrap" id="previewWrap">
+            <iframe
+              id="previewIframe"
+              sandbox="allow-same-origin allow-scripts"
+              scrolling="no"
+              style="width:1280px;height:720px;border:none;transform-origin:top left;"
+            ></iframe>
+          </div>
+
+          <!-- Edit panel -->
+          <div class="edit-panel" id="editPanel" style="display:none">
+            <div class="edit-panel-header">
+              <span>AI Slide Editor</span>
+              <button class="close-btn" onclick="toggleEditPanel()">✕</button>
+            </div>
+            <textarea
+              id="editInput"
+              placeholder="Describe the changes you want… e.g. 'Change background to dark blue', 'Add a bar chart', 'Make the title larger'"
+              rows="3"
+            ></textarea>
+            <div class="edit-actions">
+              <button class="btn-apply" id="applyEditBtn" onclick="submitEdit()">Apply Changes</button>
+              <span class="edit-status" id="editStatus"></span>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- /canvas-body -->
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
