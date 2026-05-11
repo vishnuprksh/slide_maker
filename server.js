@@ -104,7 +104,17 @@ Examples:
       return res.json({ type: 'chat', message: content || 'Sorry, I didn\'t understand that. Try asking me to create a presentation on a topic!' });
     }
 
-    const result = JSON.parse(jsonMatch[0]);
+    let result;
+    try {
+      const sanitized = jsonMatch[0].replace(/\*\*/g, '');
+      result = JSON.parse(sanitized);
+    } catch (parseErr) {
+      console.error('JSON Parse error:', parseErr, 'Raw match:', jsonMatch[0]);
+      return res.json({ 
+        type: 'chat', 
+        message: '❌ **Parsing Error:** The AI returned invalid JSON. Try slightly rephrasing your request or asking for fewer slides.' 
+      });
+    }
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -157,7 +167,13 @@ Create 3–6 slides. Be specific, creative, and vary the slide types.`,
       return res.status(400).json({ error: 'No valid JSON in response', raw: content });
     }
 
-    const plan = JSON.parse(jsonMatch[0]);
+    let plan;
+    try {
+      const sanitized = jsonMatch[0].replace(/\*\*/g, '');
+      plan = JSON.parse(sanitized);
+    } catch (parseErr) {
+      return res.status(400).json({ error: 'Failed to parse JSON', raw: content });
+    }
     res.json({ plan });
   } catch (err) {
     res.status(500).json({ error: err.message });
